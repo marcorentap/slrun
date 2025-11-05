@@ -9,6 +9,8 @@ import (
 
 var (
 	cfgFile string
+	host    string
+	port    int
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -21,7 +23,7 @@ var rootCmd = &cobra.Command{
 	// has an action associated with it:
 	// Run: func(cmd *cobra.Command, args []string) { },
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return slrun.Start(cfgFile)
+		return slrun.Start(cfgFile, host, port)
 	},
 }
 
@@ -36,4 +38,6 @@ func Execute() {
 
 func init() {
 	rootCmd.Flags().StringVar(&cfgFile, "config", "slrun.json", "config file (default ./slrun.json)")
+	rootCmd.Flags().StringVar(&host, "host", "0.0.0.0", "host to listen on")
+	rootCmd.Flags().IntVar(&port, "port", 8080, "port to listen on")
 }

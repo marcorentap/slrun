@@ -2,9 +2,15 @@ package slrun
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"os/signal"
+	"strconv"
 	"strings"
+	"syscall"
+	"time"
 
 	"archive/tar"
 	"bytes"
@@ -70,7 +76,7 @@ func createTarContext(dirPath string) (io.Reader, error) {
 	return buf, nil
 }
 
-func BuildFunctionImage(function Function) error {
+func BuildFunctionImage(function *Function) error {
 	buildCtx, err := createTarContext(function.BuildDir)
 	if err != nil {
 		return err
@@ -100,10 +106,12 @@ func BuildFunctionImage(function Function) error {
 
 	// We have to read from the response, else it won't build
 	io.Copy(io.Discard, buildResp.Body)
+
+	function.ImageName = imageName
 	return nil
 }
 
-func Start(cfgFile string) error {
+func Start(cfgFile string, host string, port int) error {
 	// Init
 	config, err := ReadConfigFile(cfgFile)
 	if err != nil {
@@ -117,13 +125,51 @@ func Start(cfgFile string) error {
 
 	// Build function images
 	for _, function := range config.Functions {
-		log.Printf("Building function image: %v => %v\n", function.Name, function.BuildDir)
-		err := BuildFunctionImage(function)
+		fmt.Printf("Building function image: %v => %v\n", function.Name, function.BuildDir)
+		err := BuildFunctionImage(&function)
 		if err != nil {
+			log.Printf("Cannot build image %v\n", function.ImageName)
 			return err
 		}
-		log.Printf("Built function image: %v\n", function.ImageName)
+
+		fmt.Printf("Built function image: %v\n", function.ImageName)
 	}
+
+	// Start server
+	listenAddr := host + ":" + strconv.Itoa(port)
+
+	server := &http.Server{
+		Addr: listenAddr,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(2 * time.Second) // Simulate some work
+			w.Write([]byte("Hello world"))
+		}),
+	}
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server failed: %v", err)
+		}
+	}()
+	fmt.Printf("HTTP server listening on %v", listenAddr)
+
+	// Register interrupt handler
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	// On interrupt...
+	<-ctx.Done()
+	log.Println("Received interrupt signal. Shutting down server...")
+
+	// Shutdown server
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelShutdown()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Cannot shutdown server. %v\n")
+		return err
+	}
+
+	fmt.Printf("Server stopped")
 
 	return nil
 }
