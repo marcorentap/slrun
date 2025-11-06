@@ -7,6 +7,7 @@ type Function struct {
 	imageName   string
 	containerId string
 	running     bool
+	port        int // 127.0.0.1:X->80/tcp
 }
 
 type Config struct {

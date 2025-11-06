@@ -26,6 +26,8 @@ var config *Config
 var dockerCli *client.Client
 var dockerCtx context.Context
 var runtime *Runtime
+var host string
+var port int
 
 // createTarContext creates a tar archive of the directory at dirPath.
 func createTarContext(dirPath string) (io.Reader, error) {
@@ -151,8 +153,25 @@ func Start(cfgFile string, host string, port int) error {
 	server := &http.Server{
 		Addr: listenAddr,
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			time.Sleep(2 * time.Second) // Simulate some work
-			w.Write([]byte("Hello world"))
+			parts := strings.Split(r.URL.Path, "/") // /funcName/other/parts
+
+			if len(parts) < 2 {
+				return
+			}
+
+			funcName := parts[1]
+			path, _ := strings.CutPrefix(r.URL.Path, "/"+funcName)
+			path = "/run" + path
+
+			resp, err := runtime.CallFunctionByName(funcName, path)
+			if err != nil {
+				w.Write([]byte("Unknown function"))
+				return
+			}
+
+			w.Write(resp)
+
+			log.Printf("Function %v called\n", funcName)
 		}),
 	}
 	go func() {
@@ -177,10 +196,11 @@ func Start(cfgFile string, host string, port int) error {
 		log.Printf("Cannot shutdown server. %v\n")
 		return err
 	}
-	fmt.Printf("Server stopped\n")
+	fmt.Printf("HTTP Server stopped\n")
 
 	// Shutdown function manager
 	runtime.Stop()
+	fmt.Printf("Runtime stopped\n")
 
 	return nil
 }

@@ -2,11 +2,16 @@ package slrun
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"log"
+	"net/http"
+	"strconv"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
+	"github.com/docker/go-connections/nat"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
@@ -34,20 +39,45 @@ func (r *Runtime) startFunction(function *Function) error {
 	config := &container.Config{
 		Image: function.imageName,
 	}
-	hostConfig := &container.HostConfig{}
 	networkingConfig := &network.NetworkingConfig{}
 	platform := &ocispec.Platform{}
+
+	port, err := nat.NewPort("tcp", "80")
+	if err != nil {
+		return err
+	}
+	portMap := nat.PortMap{}
+	portMap[port] = []nat.PortBinding{
+		{
+			HostIP:   "127.0.0.1", // Functions are directly accessible only on localhost
+			HostPort: "",          // Allocate a random port
+		},
+	}
+	hostConfig := &container.HostConfig{
+		PortBindings: portMap,
+	}
+
 	resp, err := r.cli.ContainerCreate(ctx, config, hostConfig, networkingConfig, platform, "")
 	if err != nil {
 		return err
 	}
+
+	// Start container, then set function metadata
 	startOptions := container.StartOptions{}
 	err = r.cli.ContainerStart(ctx, resp.ID, startOptions)
 	if err != nil {
 		return err
 	}
+	inspResp, err := r.cli.ContainerInspect(ctx, resp.ID)
+	if err != nil {
+		log.Printf("Cannot inspect container %v: %v\n", resp.ID, err)
+		return err
+	}
+
+	hostPort := inspResp.NetworkSettings.Ports["80/tcp"][0].HostPort
 
 	function.containerId = resp.ID
+	function.port, _ = strconv.Atoi(hostPort)
 	return nil
 }
 
@@ -89,8 +119,31 @@ func (r *Runtime) updateFunctionStatus() error {
 	return nil
 }
 
-func (r *Runtime) CallFunction(function *Function) {
+func (r *Runtime) callFunction(function *Function, path string) ([]byte, error) {
+	url := "http://127.0.0.1:" + strconv.Itoa(function.port) + path
+	resp, err := http.Get(url)
+	if err != nil {
+		log.Printf("Error calling function %v: %v", function.Name, err)
+		return nil, err
+	}
+	defer resp.Body.Close()
 
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("Cannot read function %v response: %v\n", function.Name, err)
+		return nil, err
+	}
+	return body, nil
+}
+
+func (r *Runtime) CallFunctionByName(name string, path string) ([]byte, error) {
+	for _, fun := range r.functions {
+		if fun.Name == name {
+			return r.callFunction(fun, path)
+		}
+	}
+	log.Printf("Unknown function requested %v\n", name)
+	return nil, fmt.Errorf("function %v not found", name)
 }
 
 func (r *Runtime) Start() error {
@@ -120,7 +173,7 @@ func (r *Runtime) Start() error {
 			log.Printf("Cannot start function %v: %v\n", fun.Name, err)
 			return err
 		}
-		log.Printf("Started function %v as container %v\n", fun.Name, fun.containerId)
+		log.Printf("Started function %v as container %v with mapping 127.0.0.1:%d->tcp/80\n", fun.Name, fun.containerId, fun.port)
 	}
 
 	return nil
