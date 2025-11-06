@@ -4,10 +4,12 @@ type Function struct {
 	Name     string `json:"name"`
 	BuildDir string `json:"build_dir"`
 
-	ImageName string
+	imageName   string
+	containerId string
+	running     bool
 }
 
 type Config struct {
 	ConfigFile string
-	Functions  []Function `json:"functions"`
+	Functions  []*Function `json:"functions"`
 }

@@ -25,6 +25,7 @@ import (
 var config *Config
 var dockerCli *client.Client
 var dockerCtx context.Context
+var runtime *Runtime
 
 // createTarContext creates a tar archive of the directory at dirPath.
 func createTarContext(dirPath string) (io.Reader, error) {
@@ -107,7 +108,7 @@ func BuildFunctionImage(function *Function) error {
 	// We have to read from the response, else it won't build
 	io.Copy(io.Discard, buildResp.Body)
 
-	function.ImageName = imageName
+	function.imageName = imageName
 	return nil
 }
 
@@ -126,14 +127,23 @@ func Start(cfgFile string, host string, port int) error {
 	// Build function images
 	for _, function := range config.Functions {
 		fmt.Printf("Building function image: %v => %v\n", function.Name, function.BuildDir)
-		err := BuildFunctionImage(&function)
+		err := BuildFunctionImage(function)
 		if err != nil {
-			log.Printf("Cannot build image %v\n", function.ImageName)
+			log.Printf("Cannot build image %v\n", function.imageName)
 			return err
 		}
 
-		fmt.Printf("Built function image: %v\n", function.ImageName)
+		fmt.Printf("Built function image: %v\n", function.imageName)
 	}
+
+	// Start function manager
+	log.Printf("Starting runtime\n")
+	runtime, err := NewRuntime(config.Functions)
+	if err != nil {
+		return err
+	}
+	runtime.Start()
+	fmt.Printf("Runtime started\n")
 
 	// Start server
 	listenAddr := host + ":" + strconv.Itoa(port)
@@ -150,7 +160,7 @@ func Start(cfgFile string, host string, port int) error {
 			log.Fatalf("Server failed: %v", err)
 		}
 	}()
-	fmt.Printf("HTTP server listening on %v", listenAddr)
+	fmt.Printf("HTTP server listening on %v\n", listenAddr)
 
 	// Register interrupt handler
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -163,13 +173,14 @@ func Start(cfgFile string, host string, port int) error {
 	// Shutdown server
 	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelShutdown()
-
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		log.Printf("Cannot shutdown server. %v\n")
 		return err
 	}
+	fmt.Printf("Server stopped\n")
 
-	fmt.Printf("Server stopped")
+	// Shutdown function manager
+	runtime.Stop()
 
 	return nil
 }
