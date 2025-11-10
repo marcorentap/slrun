@@ -174,7 +174,7 @@ func (r *Runtime) updateFunctionStatus() error {
 	return nil
 }
 
-func (r *Runtime) callFunction(function *types.Function, path string) ([]byte, error) {
+func (r *Runtime) callFunction(function *types.Function, path string, prevReq *http.Request) ([]byte, error) {
 	err := r.policy.PreFunctionCall(function)
 	if err != nil {
 		return nil, err
@@ -190,7 +190,15 @@ func (r *Runtime) callFunction(function *types.Function, path string) ([]byte, e
 	}
 
 	url := "http://127.0.0.1:" + strconv.Itoa(function.Port) + path
-	resp, err := http.Get(url)
+	req, err := http.NewRequest(prevReq.Method, url, nil)
+
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header = prevReq.Header
+	resp, err := http.DefaultClient.Do(req)
+	log.Printf("Request Header: %v\n", resp.Request.Header)
 	if err != nil {
 		log.Printf("Error calling function %v: %v", function.Name, err)
 		return nil, err
@@ -210,10 +218,10 @@ func (r *Runtime) callFunction(function *types.Function, path string) ([]byte, e
 	return body, nil
 }
 
-func (r *Runtime) CallFunctionByName(name string, path string) ([]byte, error) {
+func (r *Runtime) CallFunctionByName(name string, path string, prevReq *http.Request) ([]byte, error) {
 	for _, fun := range r.functions {
 		if fun.Name == name {
-			return r.callFunction(fun, path)
+			return r.callFunction(fun, path, prevReq)
 		}
 	}
 
