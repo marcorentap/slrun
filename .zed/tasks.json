@@ -1,0 +1,6 @@
+[
+  {
+    "label": "Run with example config",
+    "command": "cd ${ZED_WORKTREE_ROOT} && go run . --port 1337 --config ./example_config.json"
+  }
+]
