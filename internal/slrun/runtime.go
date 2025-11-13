@@ -106,6 +106,7 @@ func (r *Runtime) startFunction(function *types.Function) error {
 	hostPort := inspResp.NetworkSettings.Ports["80/tcp"][0].HostPort
 	function.ContainerId = resp.ID
 	function.Port, _ = strconv.Atoi(hostPort)
+	function.IsRunning = true
 	return nil
 }
 
@@ -118,6 +119,7 @@ func (r *Runtime) stopFunction(function *types.Function) error {
 	if err != nil {
 		return err
 	}
+	function.IsRunning = false
 	return nil
 }
 
