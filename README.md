@@ -24,7 +24,7 @@ See `example_config.json` and example functions in `functions/`.
 
 For each function, the `name` must be unique, and the directory pointed by `build_dir` must contain a Dockerfile located at its root, along with all other files required to build the function's image.
 
-Currently supported policies are `always_hot` and `always_cold`
+Currently supported policies are `always_hot`, `always_cold` and `cold_on_idle`.
 
 # Execution
 To use `example_config.json` and port `1337`, you may use
